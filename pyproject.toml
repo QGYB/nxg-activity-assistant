@@ -1,0 +1,35 @@
+[project]
+name = "nxg-activity-assistant"
+version = "0.1.0"
+description = "Windows desktop monitor for personally selected school activity registrations"
+readme = "README.md"
+license = "AGPL-3.0-only"
+license-files = ["LICENSE", "COPYRIGHT", "THIRD_PARTY_NOTICES.md", "LICENSES/*"]
+authors = [{name = "QGYB"}]
+classifiers = ["Operating System :: Microsoft :: Windows", "Programming Language :: Python :: 3.13"]
+requires-python = ">=3.13"
+dependencies = [
+    "pillow>=13.0.0",
+    "playwright>=1.64.1",
+]
+
+[project.urls]
+Repository = "https://github.com/QGYB/nxg-activity-assistant"
+Issues = "https://github.com/QGYB/nxg-activity-assistant/issues"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+    "ruff>=0.17.3",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

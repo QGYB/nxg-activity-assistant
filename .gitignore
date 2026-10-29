@@ -1,0 +1,39 @@
+# Python and local environments
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+.coverage*
+htmlcov/
+
+# Account, browser and application state must stay local
+*.auth
+*.db
+*.db-*
+*.sqlite*
+*.log
+.env
+.env.*
+sessions/
+pending-sessions/
+wechat-web/
+edge-profile/
+browser-profile/
+cookies*.json
+*storage-state*.json
+bridge.json
+
+# Scratch, diagnostics and personal captures
+work/
+.playwright-cli/
+playwright-report/
+test-results/
+.idea/
+.vscode/
+Thumbs.db
+Desktop.ini

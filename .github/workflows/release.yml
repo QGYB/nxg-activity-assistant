@@ -1,0 +1,39 @@
+name: Source release
+on:
+  push:
+    tags: ['v[0-9]*']
+permissions:
+  contents: read
+jobs:
+  verify:
+    uses: ./.github/workflows/windows.yml
+  publish:
+    needs: verify
+    runs-on: windows-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+          architecture: x64
+      - name: Archive verified source
+        run: python tools/build_source_release.py --output-dir dist
+      - name: Publish source and checksums
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tagName = $env:GITHUB_REF_NAME
+          if ($tagName -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$') { throw 'Invalid tag' }
+          $releaseFiles = @(Get-ChildItem -LiteralPath dist -File | ForEach-Object { $_.FullName })
+          if ($releaseFiles.Count -ne 3) { throw 'Expected archive, manifest and checksums' }
+          $releaseArgs = @('release', 'create', $tagName) + $releaseFiles + @('--verify-tag', '--title', "活动报名助手 $tagName", '--notes-file', 'CHANGELOG.md')
+          if ($tagName.Contains('-')) { $releaseArgs += '--prerelease' }
+          gh @releaseArgs
+          if ($LASTEXITCODE -ne 0) { throw 'Release failed' }

@@ -1,0 +1,22 @@
+name: 报告问题
+description: 提供脱敏复现步骤和预期行为。
+body:
+  - type: markdown
+    attributes:
+      value: 请勿附带 Cookie、Token、个人资料、会话文件或真实数据库。安全问题请先阅读 SECURITY.md。
+  - type: input
+    id: version
+    attributes:
+      label: 助手版本 / 提交
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤、实际结果与预期结果
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Windows 与 Python 版本
