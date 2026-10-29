@@ -2,6 +2,7 @@
 # Copyright (C) 2026 QGYB and contributors
 
 import queue
+import time
 import tkinter as tk
 
 import pytest
@@ -177,3 +178,21 @@ def test_large_list_scroll_settles_and_refresh_preserves_selection(desktop, monk
     app.render_table()
     assert app.table.selection() == ("500",)
     assert abs(app.table.yview()[0] - position) < 0.01
+
+
+def test_visible_window_paints_without_blocking_for_seconds(desktop):
+    app, store, account, worker = desktop
+    store.save_activities(account, [{"id": str(i), "projectName": f"示例活动 {i}"} for i in range(141)])
+    app.render_table()
+    paints = []
+    try:
+        app.root.deiconify()
+        for width in (1600, 1700, 1600):
+            app.root.geometry(f"{width}x1050")
+            before = time.perf_counter()
+            app.root.update_idletasks()
+            paints.append(time.perf_counter() - before)
+        assert max(paints) < 2, f"Native background painting blocked the UI: {paints}"
+        assert not store.account(account)["enabled"] and not worker.commands
+    finally:
+        app.root.withdraw()

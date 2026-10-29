@@ -55,8 +55,8 @@ def setup_style(root):
     # Only small geometric assets are generated; the application icon is unchanged.
     images = []
 
-    def patch(fill, border, radius=6):
-        side, factor = px(24), 3
+    def patch(fill, border, radius=6, size=24):
+        side, factor = px(size), 3
         picture = Image.new("RGBA", (side * factor, side * factor))
         draw = ImageDraw.Draw(picture)
         draw.rounded_rectangle(
@@ -138,8 +138,11 @@ def setup_style(root):
     style.configure("Quiet.TButton", padding=(px(8), px(5)), font=(FONT, 9))
     style.configure("Primary.TButton", font=(FONT, 10, "bold"))
 
-    card = patch(SURFACE, BORDER, radius=10)
-    style.element_create("Card.rounded", "image", card, border=px(10), padding=0, sticky="nsew")
+    # ttk tiles the center rather than scaling it. A 4px center required tens of
+    # thousands of Windows GDI draws for a large panel, blocking the event loop.
+    # Keep the corners, use a larger tile, and let content determine minimum size.
+    card = patch(SURFACE, BORDER, radius=10, size=128)
+    style.element_create("Card.rounded", "image", card, border=px(10), padding=0, sticky="nsew", width=0, height=0)
     style.layout("Card.TFrame", [("Card.rounded", {"sticky": "nsew"})])
     style.configure("Card.TFrame", background=BG)
     style.configure("TEntry", padding=(px(9), px(7)), fieldbackground=SURFACE, bordercolor=BORDER)
