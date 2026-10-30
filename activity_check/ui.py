@@ -122,7 +122,7 @@ class ImportDialog(tk.Toplevel):
         ttk.Label(login, text="在学校官方页面完成登录", style="Section.TLabel").pack(anchor="w", pady=(12, 18))
         ttk.Label(
             login,
-            text="将打开独立的 Edge 登录窗口。登录成功后，助手会验证账号并自动加密保存登录态。\n\n按学校提供的认证方式操作；如果学校要求在微信内登录，可改用“粘贴导入”。\n\n不会读取你日常浏览器中其他网站的数据。",
+            text="将打开独立的 Edge 窗口。先登录学校网上办事大厅，再打开“智慧思政活动报名”，直到显示活动列表。助手核验成功后会自动加密保存登录态。\n\n如果学校要求在微信内登录，可使用正常认证渠道后“粘贴导入”。",
             wraplength=580,
             justify="left",
         ).pack(anchor="w")
@@ -145,7 +145,7 @@ class ImportDialog(tk.Toplevel):
         self.update()
         messagebox.showinfo(
             "已复制命令",
-            "1. 在已登录的学校活动页面按 F12，切换到 Console（控制台）。\n2. 运行刚复制的命令，它只把本网站登录数据复制到剪贴板。\n3. 回到助手粘贴到上方大框，点击“保存并检查登录”。\n\n登录数据请只粘贴到本机助手。",
+            "1. 登录学校网上办事大厅，再打开“智慧思政活动报名”。\n2. 确认已显示活动列表，在该页面按 F12 → Console。门户首页的数据不能用于报名。\n3. 运行刚复制的命令，将完整登录数据粘贴回助手，再点“保存并检查登录”。\n\ncopy() 返回 undefined 属正常现象，数据已复制到剪贴板。登录数据请只粘贴到本机助手。",
             parent=self,
         )
 
@@ -159,7 +159,7 @@ class ImportDialog(tk.Toplevel):
         except (SessionError, ValueError, TypeError):
             messagebox.showerror(
                 "请检查登录数据",
-                "尚未读到完整的学生登录数据。请使用“复制登录数据命令”，或补充正确的 Token 和个人标识 ID。",
+                "尚未读到完整的学生登录数据。请先进入智慧思政活动报名，看到活动列表后，在该页面运行“复制登录数据命令”。门户首页的数据不能用于报名。仅有 Cookie 时可补充 Token 和个人标识 ID。",
                 parent=self,
             )
             return
@@ -282,6 +282,7 @@ class App:
         self.px = lambda value: round(value * self.scale)
         self.account_id = None
         self.closing = False
+        self._render_id = None
         self.terms, self.rows, self.sort_preferences, self.view_state = {}, {}, {}, {}
         self.busy = set()
         self.home_scroll = 0
@@ -1133,13 +1134,27 @@ class App:
         except queue.Empty:
             pass
         if changed:
-            self.render_table() if self.account_id else self.show_home()
+            self._coalesced_render()
         self.root.after(250, self.poll)
+
+    def _coalesced_render(self):
+        # A fixed trailing update cannot be postponed indefinitely by new events.
+        # User actions still render immediately; background detail bursts share it.
+        if not self.closing and self._render_id is None:
+            self._render_id = self.root.after(1000, self._flush_render)
+
+    def _flush_render(self):
+        self._render_id = None
+        if not self.closing:
+            self.render_table() if self.account_id else self.show_home()
 
     def close(self):
         if self.closing:
             return
         self.closing = True
+        if self._render_id is not None:
+            self.root.after_cancel(self._render_id)
+            self._render_id = None
         for account in self.store.accounts():
             self.store.configure(account["id"], enabled=False)
         self.footer.set("正在结束网络检查并释放登录窗口，请稍候…")

@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from activity_check.models import Activity, BEIJING
+from activity_check.models import Activity, BEIJING, display_status
 from activity_check.session import SessionError, import_session
 
 
@@ -160,3 +160,43 @@ def test_short_tokens_are_also_redacted_from_server_messages():
 
     session = import_session('{"token":"xx","teaInfo":{"id":"A"}}')
     assert "xx" not in SiteClient(session).message({"msg": "无法处理 xx"})
+
+
+@pytest.mark.parametrize("attempt,bm_state", [(None, 1), ("success", 2), (None, None)])
+def test_past_activity_displays_ended_without_changing_engine_semantics(attempt, bm_state):
+    a = activity(bmState=bm_state, bmStart=None, bmEnd=None)
+    now = datetime(2026, 11, 1, 16, tzinfo=BEIJING)
+    assert display_status({"raw": a.raw, "attempt_status": attempt}, now) == "ended"
+    assert a.eligibility(now) == ("registered" if bm_state == 1 else "unknown")
+
+
+@pytest.mark.parametrize("hour", [13, 14, 15])
+def test_upcoming_and_ongoing_registrations_remain_registered(hour):
+    a = activity(bmState=1)
+    assert display_status({"raw": a.raw}, datetime(2026, 11, 1, hour, tzinfo=BEIJING)) == "registered"
+
+
+@pytest.mark.parametrize("end", [None, "", "not-a-time"])
+def test_missing_activity_end_is_not_invented_from_signup_deadline(end):
+    a = activity(bmState=1, endTime=end)
+    assert display_status({"raw": a.raw}, datetime(2026, 11, 3, tzinfo=BEIJING)) == "registered"
+
+
+@pytest.mark.parametrize("status", ["submitting", "uncertain", "cancelling", "cancel_uncertain", "cancelled"])
+def test_ended_activity_keeps_submission_and_cancellation_results_visible(status):
+    a = activity(bmState=2)
+    key = "cancel_status" if status.startswith("cancel") else "attempt_status"
+    assert display_status({"raw": a.raw, key: status}, datetime(2026, 11, 3, tzinfo=BEIJING)) == status
+
+
+def test_login_entry_and_registration_origin_are_separate():
+    from activity_check.models import LIST_URL, LOGIN_URL, ORIGIN
+
+    assert LOGIN_URL == "https://ehallapp.zwu.edu.cn:8080/"
+    assert ORIGIN == "https://nxg.zwu.edu.cn"
+    assert LIST_URL == ORIGIN + "/zhxg/#/lifePractice/signup/list"
+
+
+def test_portal_storage_explains_where_to_export_activity_login_data():
+    with pytest.raises(SessionError, match="活动列表"):
+        import_session('{"localStorage":{"Home_UseProxyAccount":"fixture"}}')

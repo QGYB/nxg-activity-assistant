@@ -5,6 +5,7 @@ import ctypes
 from ctypes import wintypes
 import hashlib
 import os
+from pathlib import Path
 
 
 def enable_dpi_awareness():
@@ -94,20 +95,82 @@ def install_window_icons(window, path):
     window.after_idle(lambda: refresh(force=True))
 
 
+def _instance_name(directory):
+    key = hashlib.sha256(str(Path(directory).resolve()).casefold().encode()).hexdigest()[:24]
+    return "NXGActivityCheck-" + key
+
+
+def activate_existing_window(directory):
+    """Restore the instance for this data directory, including an iconic window."""
+    if os.name != "nt":
+        return False
+    user = ctypes.WinDLL("user32", use_last_error=True)
+    user.GetPropW.argtypes = [wintypes.HWND, wintypes.LPCWSTR]
+    user.GetPropW.restype = wintypes.HANDLE
+    user.IsIconic.argtypes = [wintypes.HWND]
+    user.IsWindowVisible.argtypes = [wintypes.HWND]
+    user.ShowWindowAsync.argtypes = [wintypes.HWND, ctypes.c_int]
+    user.SetForegroundWindow.argtypes = [wintypes.HWND]
+    callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    user.EnumWindows.argtypes = [callback_type, wintypes.LPARAM]
+    name = _instance_name(directory)
+    found = []
+
+    @callback_type
+    def collect(handle, _data):
+        if user.GetPropW(handle, name):
+            found.append(handle)
+            return False
+        return True
+
+    user.EnumWindows(collect, 0)
+    if not found:
+        return False
+    handle = found[0]
+    if user.IsIconic(handle):
+        user.ShowWindowAsync(handle, 9)  # SW_RESTORE; leave a maximized window maximized.
+    elif not user.IsWindowVisible(handle):
+        user.ShowWindowAsync(handle, 5)  # SW_SHOW
+    user.SetForegroundWindow(handle)
+    return True
+
+
 class SingleInstance:
     def __init__(self, directory):
         self.handle = None
+        self.window_handle = None
+        self.window_property = _instance_name(directory)
         if os.name != "nt":
             return
         kernel = ctypes.WinDLL("kernel32", use_last_error=True)
         kernel.CreateMutexW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR]
         kernel.CreateMutexW.restype = wintypes.HANDLE
-        key = hashlib.sha256(str(directory.resolve()).casefold().encode()).hexdigest()[:24]
-        self.handle = kernel.CreateMutexW(None, False, "Local\\NXGActivityCheck-" + key)
+        self.handle = kernel.CreateMutexW(None, False, "Local\\" + self.window_property)
         if not self.handle:
             raise OSError("无法创建程序实例锁。")
         self.already_running = ctypes.get_last_error() == 183
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("NXG.ActivityCheck.Desktop.v1")
+
+    def attach_window(self, window):
+        if os.name != "nt":
+            return
+        window.update_idletasks()
+        user = ctypes.WinDLL("user32", use_last_error=True)
+        user.SetPropW.argtypes = [wintypes.HWND, wintypes.LPCWSTR, wintypes.HANDLE]
+        user.SetPropW.restype = wintypes.BOOL
+        user.RemovePropW.argtypes = [wintypes.HWND, wintypes.LPCWSTR]
+        user.RemovePropW.restype = wintypes.HANDLE
+        handle = int(window.wm_frame(), 0)
+        if not user.SetPropW(handle, self.window_property, 1):
+            raise OSError("无法注册助手窗口。")
+        self.window_handle = handle
+
+        def destroyed(event):
+            if event.widget is window and self.window_handle:
+                user.RemovePropW(self.window_handle, self.window_property)
+                self.window_handle = None
+
+        window.bind("<Destroy>", destroyed, add="+")
 
     def close(self):
         if self.handle:

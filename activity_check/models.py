@@ -8,7 +8,7 @@ import re
 BEIJING = timezone(timedelta(hours=8))
 ORIGIN = "https://nxg.zwu.edu.cn"
 LIST_URL = ORIGIN + "/zhxg/#/lifePractice/signup/list"
-LOGIN_URL = ORIGIN + "/zhxg/"
+LOGIN_URL = "https://ehallapp.zwu.edu.cn:8080/"
 
 
 def now_beijing():
@@ -78,6 +78,10 @@ class Activity:
             f"{count if count is not None else '?'} / {'不限' if limit == 0 else limit if limit is not None else '?'}"
         )
 
+    def activity_time_ended(self, now=None):
+        end = parse_time(self.raw.get("endTime"))
+        return end is not None and (now or now_beijing()) >= end
+
     def eligibility(self, now=None):
         now = now or now_beijing()
         if integer(self.raw.get("bmState")) == 1:
@@ -104,8 +108,15 @@ class Activity:
 def display_status(row, now=None):
     status = row.get("cancel_status")
     if status in {"cancelled", "not_registered"} and integer(row["raw"].get("bmState")) == 1:
-        return "registered"
-    return status or row.get("attempt_status") or Activity.from_row(row["raw"]).eligibility(now)
+        status = "registered"
+    activity = Activity.from_row(row["raw"])
+    status = status or row.get("attempt_status") or activity.eligibility(now)
+    # An ended event changes the display, never the engine's registration evidence.
+    # Keep pending requests, uncertain results and cancellation records visible.
+    if status in {"registered", "success", "unknown", "ready", "pending", "full", "blocked", "unavailable"}:
+        if activity.activity_time_ended(now):
+            return "ended"
+    return status
 
 
 LABELS = {

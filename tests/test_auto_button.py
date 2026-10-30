@@ -2,6 +2,7 @@
 # Copyright (C) 2026 QGYB and contributors
 
 import queue
+import time
 import tkinter as tk
 
 import pytest
@@ -177,3 +178,46 @@ def test_large_list_scroll_settles_and_refresh_preserves_selection(desktop, monk
     app.render_table()
     assert app.table.selection() == ("500",)
     assert abs(app.table.yview()[0] - position) < 0.01
+
+
+def test_visible_window_paints_without_blocking_for_seconds(desktop):
+    app, store, account, worker = desktop
+    store.save_activities(account, [{"id": str(i), "projectName": f"示例活动 {i}"} for i in range(141)])
+    app.render_table()
+    paints = []
+    try:
+        app.root.deiconify()
+        for width in (1600, 1700, 1600):
+            app.root.geometry(f"{width}x1050")
+            before = time.perf_counter()
+            app.root.update_idletasks()
+            paints.append(time.perf_counter() - before)
+        assert max(paints) < 2, f"Native background painting blocked the UI: {paints}"
+        assert not store.account(account)["enabled"] and not worker.commands
+    finally:
+        app.root.withdraw()
+
+
+def test_background_event_burst_coalesces_renders_and_keeps_latest_data(desktop, monkeypatch):
+    app, store, account, worker = desktop
+    renders = []
+    original_render = app.render_table
+
+    def render():
+        renders.append(time.monotonic())
+        original_render()
+
+    monkeypatch.setattr(app, "render_table", render)
+    app.search_var.set("示例")
+    renders.clear()
+    app.interval_var.set("尚未保存")
+    for i in range(5):
+        app.root.after(i * 100, lambda: (worker.events.put(("changed", account, {})), app.poll()))
+    app.root.after(450, lambda: store.save_activities(account, [{"id": "last", "projectName": "示例活动"}]))
+    app.root.after(460, lambda: worker.events.put(("changed", account, {})))
+    app.root.after(1300, app.root.quit)
+    app.root.mainloop()
+    assert len(renders) <= 2, f"Background updates rebuilt the view {len(renders)} times"
+    assert app.table.exists("last")
+    assert app.search_var.get() == "示例" and app.interval_var.get() == "尚未保存"
+    assert not store.account(account)["enabled"] and not worker.commands
