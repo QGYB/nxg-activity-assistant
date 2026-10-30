@@ -8,7 +8,7 @@ import tkinter as tk
 from tkinter import messagebox
 import traceback
 
-from .identity import SingleInstance, enable_dpi_awareness
+from .identity import SingleInstance, activate_existing_window, enable_dpi_awareness
 from .notifications import NotificationWorker
 from .wechat_web import WebWechatSender
 from .store import Store
@@ -29,6 +29,9 @@ def main():
     directory.mkdir(parents=True, exist_ok=True)
     lock = SingleInstance(directory)
     if getattr(lock, "already_running", False):
+        if activate_existing_window(directory):
+            lock.close()
+            return
         root = tk.Tk()
         root.withdraw()
         messagebox.showinfo("活动报名助手", "助手已经运行，请从任务栏打开现有窗口。")
@@ -47,6 +50,7 @@ def main():
             notifier.start()
         root = tk.Tk()
         App(root, store, vault, worker, notifier=notifier)
+        lock.attach_window(root)
         root.mainloop()
     except Exception as error:
         # Record locations and exception type, without exception values or credentials.

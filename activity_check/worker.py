@@ -268,15 +268,19 @@ class Worker(threading.Thread):
                     continue
                 start = parse_time(raw.get("startTime") or raw.get("bmStart"))
                 priority = (status != "ready", status == "ended", -start.timestamp() if start else 0)
-                candidates.append((priority, account, item["id"]))
+                candidates.append((priority, account, item["id"], raw))
         if not candidates:
             self.next_detail_at = now + 1
             return False
-        _priority, account, identity = min(candidates)
+        _priority, account, identity, cached = min(candidates, key=lambda item: item[:3])
         try:
             detail = self._client(account).detail(identity)
-            # Display enrichment must not overwrite fresh list state, capacity or registration targets.
+            # Details may fill absent constraints; explicit list values, including 0,
+            # remain authoritative. Submission still fetches and validates fresh details.
             fields = {key: detail.get(key) for key in ("startTime", "endTime", "address")}
+            for key in ("bmStart", "bmEnd", "state", "bmState", "rz", "maxNum", "currentNum"):
+                if cached.get(key) in (None, "") and detail.get(key) not in (None, ""):
+                    fields[key] = detail[key]
             self.store.save_activities(
                 account, [fields | {"id": identity, "_detail_checked_at": time.time(), "_detail_error": False}]
             )

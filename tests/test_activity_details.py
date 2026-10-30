@@ -7,6 +7,7 @@ from activity_check.store import Store
 from activity_check.vault import Vault
 from activity_check.worker import Worker
 from test_engine import DETAIL, fixture_site
+import pytest
 
 
 DISPLAY = {"startTime": "2026-11-01 14:00:00", "endTime": "2026-11-01 16:00:00", "address": "测试图书馆"}
@@ -86,3 +87,31 @@ def test_due_monitor_poll_takes_priority_over_background_details(tmp_path):
         worker.next_poll[account] = 0
         assert not worker._hydrate_next_detail()
     assert calls == []
+
+
+@pytest.mark.parametrize("blank", [None, ""])
+def test_details_fill_missing_signup_fields_without_submitting(tmp_path, blank):
+    store, account, worker = setup_account(tmp_path)
+    row = {key: blank for key in DETAIL} | {"id": "42", "projectName": "示例活动"}
+    with fixture_site(rows=[row], detail=DETAIL | DISPLAY) as (site, calls):
+        worker.clients[account] = site
+        worker._refresh(account)
+        assert worker._hydrate_next_detail()
+    raw = store.activities(account)[0]["raw"]
+    for key in ("bmStart", "bmEnd", "state", "bmState", "rz", "maxNum", "currentNum"):
+        assert raw[key] == DETAIL[key]
+    assert not {path for path, _ in calls} & {"/s/credit/hdBm", "/s/credit/hdLose", "/s/credit/qxHdBm"}
+    assert not store.account(account)["enabled"]
+
+
+def test_details_never_replace_nonempty_list_constraints_or_zero_counts(tmp_path):
+    store, account, worker = setup_account(tmp_path)
+    row = DETAIL | {"state": 0, "bmState": 0, "maxNum": 0, "currentNum": 0}
+    with fixture_site(rows=[row], detail=DETAIL | DISPLAY | {"currentNum": 9, "maxNum": 99}) as (site, calls):
+        worker.clients[account] = site
+        worker._refresh(account)
+        assert worker._hydrate_next_detail()
+    raw = store.activities(account)[0]["raw"]
+    for key in ("bmStart", "bmEnd", "state", "bmState", "rz", "maxNum", "currentNum"):
+        assert raw[key] == row[key]
+    assert not {path for path, _ in calls} & {"/s/credit/hdBm", "/s/credit/hdLose", "/s/credit/qxHdBm"}

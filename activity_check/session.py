@@ -81,7 +81,10 @@ def import_session(raw, token="", student_id=""):
         raise SessionError("请选择学生账号的登录数据。")
     identity = str(info.get("id") or student_id or "").strip()
     if not token or not identity or any(c in token + identity for c in "\r\n"):
-        raise SessionError("该网站还需要完整登录数据（Token 和个人标识）；请点“复制登录数据命令”，或选择网页登录。")
+        raise SessionError(
+            "还需要完整登录数据（Token 和个人标识）。请先从学校门户进入智慧思政活动报名，"
+            "看到活动列表后，再在该页面运行“复制登录数据命令”；门户首页的数据不能用于报名。"
+        )
     if student_id and str(student_id).strip() != identity:
         raise SessionError("填写的个人标识与登录数据不一致。")
     info = info | {"id": identity, "status": "1"}

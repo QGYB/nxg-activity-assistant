@@ -196,3 +196,28 @@ def test_visible_window_paints_without_blocking_for_seconds(desktop):
         assert not store.account(account)["enabled"] and not worker.commands
     finally:
         app.root.withdraw()
+
+
+def test_background_event_burst_coalesces_renders_and_keeps_latest_data(desktop, monkeypatch):
+    app, store, account, worker = desktop
+    renders = []
+    original_render = app.render_table
+
+    def render():
+        renders.append(time.monotonic())
+        original_render()
+
+    monkeypatch.setattr(app, "render_table", render)
+    app.search_var.set("示例")
+    renders.clear()
+    app.interval_var.set("尚未保存")
+    for i in range(5):
+        app.root.after(i * 100, lambda: (worker.events.put(("changed", account, {})), app.poll()))
+    app.root.after(450, lambda: store.save_activities(account, [{"id": "last", "projectName": "示例活动"}]))
+    app.root.after(460, lambda: worker.events.put(("changed", account, {})))
+    app.root.after(1300, app.root.quit)
+    app.root.mainloop()
+    assert len(renders) <= 2, f"Background updates rebuilt the view {len(renders)} times"
+    assert app.table.exists("last")
+    assert app.search_var.get() == "示例" and app.interval_var.get() == "尚未保存"
+    assert not store.account(account)["enabled"] and not worker.commands
