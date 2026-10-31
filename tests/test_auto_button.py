@@ -257,3 +257,19 @@ def test_widgets_use_the_supplied_window_with_implicit_roots_disabled(desktop, m
         second.closing = True
     finally:
         dialog.destroy()
+
+
+def test_new_activity_counter_uses_current_campus(desktop):
+    app, store, account, _worker = desktop
+    store.start_monitor(account, 10)
+    store.record_snapshot(account, [])
+    store.record_snapshot(
+        account,
+        [
+            {"id": "h", "projectName": "回龙示例", "address": "回龙校区"},
+            {"id": "q", "projectName": "钱湖示例", "address": "钱湖校区"},
+        ],
+    )
+    store.configure(account, enabled=False)
+    app.campus_buttons["回龙"].invoke()
+    assert "新发现 1" in app.count_var.get()

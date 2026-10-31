@@ -17,6 +17,7 @@ from .session import SessionError, import_session, login_page_location, school_d
 from .site import SiteClient, SiteError, LoginExpired
 from .store import IdentityMismatch
 from .vault import Vault
+from .campus import matches_campus
 
 
 class WorkerUnavailable(RuntimeError):
@@ -155,7 +156,7 @@ class Worker(threading.Thread):
         self.vault.save(account, session.to_json())
         self.clients[account] = client
         self.store.configure(account, term=term, status="已登录")
-        self.store.save_activities(account, [row | {"_term": term} for row in rows])
+        self.store.save_activities(account, [row | {"_term": term} for row in rows], from_list=True)
         self.store.log(account, "已验证并加密保存登录态，活动列表已更新。")
         if self.pending_vault.path(account).exists() and self.pending_vault.load(account) == session.to_json():
             self.pending_vault.remove(account)
@@ -188,22 +189,41 @@ class Worker(threading.Thread):
                 discovered = self.store.record_snapshot(
                     account, list(visible.values()), generation=owner["watch_generation"]
                 )
-                if discovered:
-                    mode = self.store.account(account)["mode"]
-                    message = f"发现 {len(discovered)} 条新活动，" + (
+                current = self.store.account(account)
+                if (
+                    discovered
+                    and current
+                    and current["enabled"]
+                    and current["watch_generation"] == owner["watch_generation"]
+                ):
+                    mode = current["mode"]
+                    message = f"发现 {len(discovered)} 条新活动（{current['campus'] or '全部校区'}），" + (
                         "已加入自动报名检查。" if mode == "auto" else "仅提示，不提交报名。"
                     )
                     self.store.log(account, message)
                     self.emit("new_activity", account, message=message, count=len(discovered))
             else:
-                self.store.save_activities(account, list(visible.values()))
+                self.store.save_activities(account, list(visible.values()), from_list=True)
             self.store.configure(account, status="已登录")
-            if execute:
-                targets = [r for r in self.store.activities(account) if not r["excluded"] and r["auto_target"]]
+            current = self.store.account(account)
+            if execute and current and current["enabled"] and current["watch_generation"] == owner["watch_generation"]:
+                targets = [
+                    r
+                    for r in self.store.activities(account)
+                    if not r["excluded"]
+                    and r["auto_target"]
+                    and (r["attempt_status"] == "uncertain" or matches_campus(r["raw"], current["campus"]))
+                ]
                 # Include existing and new activities in this scope; earlier opening first.
                 targets.sort(key=lambda r: str(r["raw"].get("bmStart") or "9999"))
                 for item in targets:
-                    if self.stopping.is_set() or not self.store.account(account)["enabled"]:
+                    current = self.store.account(account)
+                    if (
+                        self.stopping.is_set()
+                        or not current
+                        or not current["enabled"]
+                        or current["watch_generation"] != owner["watch_generation"]
+                    ):
                         break
                     status = Activity.from_row(item["raw"]).eligibility()
                     if item["attempt_status"] == "uncertain":

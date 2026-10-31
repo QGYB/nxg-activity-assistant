@@ -785,7 +785,7 @@ class App:
         if old_y:
             self.table.yview_moveto(old_y[0])
         excluded = sum(r["excluded"] for r in rows)
-        new_count = sum(r["is_new"] for r in rows)
+        new_count = sum(r["is_new"] for r in rows if matches_campus(r["raw"], owner["campus"]))
         self.count_var.set(f"显示 {visible} / {len(rows)} 项  ·  新发现 {new_count}  ·  不报名 {excluded}")
         self.monitor_button.configure(text="暂停监测" if owner["enabled"] else "开启监测")
         auto_enabled = owner["mode"] == "auto" and owner["enabled"]
