@@ -201,7 +201,13 @@ class Worker(threading.Thread):
                         "已加入自动报名检查。" if mode == "auto" else "仅提示，不提交报名。"
                     )
                     self.store.log(account, message)
-                    self.emit("new_activity", account, message=message, count=len(discovered))
+                    self.emit(
+                        "new_activity",
+                        account,
+                        message=message,
+                        count=len(discovered),
+                        watch_generation=owner["watch_generation"],
+                    )
             else:
                 self.store.save_activities(account, list(visible.values()), from_list=True)
             self.store.configure(account, status="已登录")

@@ -1137,6 +1137,8 @@ class App:
                     self.footer.set(data["message"])
                 elif kind == "new_activity":
                     owner = self.store.account(account)
+                    if not owner or not owner["enabled"] or data.get("watch_generation") != owner["watch_generation"]:
+                        continue
                     self.footer.set((owner["name"] + "：" if owner else "") + data["message"])
                     self.root.bell()
                 changed = True

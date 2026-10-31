@@ -273,3 +273,29 @@ def test_new_activity_counter_uses_current_campus(desktop):
     store.configure(account, enabled=False)
     app.campus_buttons["回龙"].invoke()
     assert "新发现 1" in app.count_var.get()
+
+
+def test_queued_discovery_from_previous_campus_is_not_displayed(desktop, monkeypatch):
+    app, store, account, worker = desktop
+    bells = []
+    monkeypatch.setattr(app.root, "bell", lambda: bells.append(True))
+    store.start_monitor(account, 10)
+    generation = store.account(account)["watch_generation"]
+    previous = app.footer.get()
+    worker.events.put(("new_activity", account, {"message": "旧范围提示", "count": 1, "watch_generation": generation}))
+    store.set_campus(account, "回龙")
+    app.poll()
+    assert app.footer.get() == previous and not bells
+    worker.events.put(
+        (
+            "new_activity",
+            account,
+            {
+                "message": "当前范围提示",
+                "count": 1,
+                "watch_generation": store.account(account)["watch_generation"],
+            },
+        )
+    )
+    app.poll()
+    assert "当前范围提示" in app.footer.get() and len(bells) == 1
