@@ -257,3 +257,45 @@ def test_widgets_use_the_supplied_window_with_implicit_roots_disabled(desktop, m
         second.closing = True
     finally:
         dialog.destroy()
+
+
+def test_new_activity_counter_uses_current_campus(desktop):
+    app, store, account, _worker = desktop
+    store.start_monitor(account, 10)
+    store.record_snapshot(account, [])
+    store.record_snapshot(
+        account,
+        [
+            {"id": "h", "projectName": "回龙示例", "address": "回龙校区"},
+            {"id": "q", "projectName": "钱湖示例", "address": "钱湖校区"},
+        ],
+    )
+    store.configure(account, enabled=False)
+    app.campus_buttons["回龙"].invoke()
+    assert "新发现 1" in app.count_var.get()
+
+
+def test_queued_discovery_from_previous_campus_is_not_displayed(desktop, monkeypatch):
+    app, store, account, worker = desktop
+    bells = []
+    monkeypatch.setattr(app.root, "bell", lambda: bells.append(True))
+    store.start_monitor(account, 10)
+    generation = store.account(account)["watch_generation"]
+    previous = app.footer.get()
+    worker.events.put(("new_activity", account, {"message": "旧范围提示", "count": 1, "watch_generation": generation}))
+    store.set_campus(account, "回龙")
+    app.poll()
+    assert app.footer.get() == previous and not bells
+    worker.events.put(
+        (
+            "new_activity",
+            account,
+            {
+                "message": "当前范围提示",
+                "count": 1,
+                "watch_generation": store.account(account)["watch_generation"],
+            },
+        )
+    )
+    app.poll()
+    assert "当前范围提示" in app.footer.get() and len(bells) == 1

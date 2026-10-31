@@ -115,3 +115,25 @@ def test_details_never_replace_nonempty_list_constraints_or_zero_counts(tmp_path
     for key in ("bmStart", "bmEnd", "state", "bmState", "rz", "maxNum", "currentNum"):
         assert raw[key] == row[key]
     assert not {path for path, _ in calls} & {"/s/credit/hdBm", "/s/credit/hdLose", "/s/credit/qxHdBm"}
+
+
+@pytest.mark.parametrize("blank", [None, ""])
+def test_empty_list_display_fields_do_not_erase_verified_detail_location(tmp_path, blank):
+    store, account, worker = setup_account(tmp_path)
+    row = DETAIL | {key: blank for key in DISPLAY}
+    with fixture_site(rows=[row], detail=DETAIL | DISPLAY) as (site, _calls):
+        worker.clients[account] = site
+        worker._refresh(account)
+        assert worker._hydrate_next_detail()
+        worker._refresh(account)
+    assert {key: store.activities(account)[0]["raw"][key] for key in DISPLAY} == DISPLAY
+
+
+def test_fresh_detail_can_clear_a_previously_known_location(tmp_path):
+    store, account, worker = setup_account(tmp_path)
+    store.configure(account, status="已登录")
+    store.save_activities(account, [DETAIL | DISPLAY | {"_detail_checked_at": 1}])
+    with fixture_site(detail=DETAIL | {key: None for key in DISPLAY}) as (site, _calls):
+        worker.clients[account] = site
+        assert worker._hydrate_next_detail()
+    assert all(store.activities(account)[0]["raw"][key] is None for key in DISPLAY)

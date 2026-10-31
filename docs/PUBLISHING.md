@@ -19,8 +19,8 @@ git push -u origin fix/example
 2. 确认主分支 CI 通过；完整历史密钥扫描通过后打标签：
 
 ```powershell
-git tag v0.1.2
-git push origin v0.1.2
+git tag v0.1.3
+git push origin v0.1.3
 ```
 
 标签工作流先运行 Windows 检查，再生成源码包、逐文件 SHA-256 清单及校验文件并创建 Release。发布任务单独具备写权限，其余检查只读。官方 Actions 固定完整提交 SHA。

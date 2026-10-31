@@ -45,7 +45,7 @@ def test_confirmed_booking_queues_one_exact_message_and_does_not_resend(tmp_path
         engine.process(account, DETAIL, site)
     note = store.notification(account, "42")
     assert note["state"] == "queued"
-    assert note["body"] == "已报名---独立测试活动"
+    assert note["body"] == "测试已报上独立测试活动"
     sender = LocalSender()
     worker = notification_module().NotificationWorker(store, sender)
     assert worker.tick()
@@ -79,10 +79,33 @@ def test_own_uncertain_submission_notifies_only_after_website_confirms(tmp_path)
     with fixture_site(mode="dropped") as (site, _calls):
         engine.process(account, DETAIL, site)
     assert store.notification(account, "42") is None
+    store.rename_account(account, "确认后的备注")
     with fixture_site(detail=DETAIL | {"bmState": 1}) as (site, calls):
         engine.process(account, DETAIL, site)
     assert store.notification(account, "42")["state"] == "queued"
+    assert store.notification(account, "42")["body"] == "确认后的备注已报上独立测试活动"
     assert "/s/credit/hdBm" not in [path for path, _fields in calls]
+
+
+def test_success_notification_uses_name_at_confirmation_not_request_start(tmp_path):
+    store, account, engine = prepare(tmp_path)
+    store.rename_account(account, "原来的备注")
+    with fixture_site() as (site, _calls):
+        submit = site.submit
+
+        def renamed_during_submission(identity):
+            response = submit(identity)
+            store.rename_account(account, "新的备注")
+            return response
+
+        site.submit = renamed_during_submission
+        engine.process(account, DETAIL, site)
+    assert store.notification(account, "42")["body"] == "新的备注已报上独立测试活动"
+
+
+def test_success_message_is_one_line_and_preserves_plain_account_name():
+    message = notification_module().success_message("  示例<账号>\n一号  ", "<b>校园志愿活动</b>\n")
+    assert message == "示例<账号> 一号已报上校园志愿活动"
 
 
 def test_missing_wechat_keeps_queue_without_reversing_booking(tmp_path):

@@ -10,9 +10,10 @@ from .models import plain_text
 from .wechat_web import WechatSendRejected
 
 
-def success_message(title):
+def success_message(account_name, title):
+    account_name = " ".join(str(account_name or "").split())[:60] or "我的账号"
     title = " ".join(plain_text(title).split())[:300] or "未命名活动"
-    return "已报名---" + title
+    return account_name + "已报上" + title
 
 
 class NotificationWorker(threading.Thread):

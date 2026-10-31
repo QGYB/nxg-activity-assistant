@@ -184,12 +184,12 @@ class Store:
                 (campus, account, campus),
             )
 
-    def save_activities(self, account, rows):
+    def save_activities(self, account, rows, *, from_list=False):
         with self.connection() as db:
-            self._save_rows(db, account, rows)
+            self._save_rows(db, account, rows, from_list=from_list)
 
     @staticmethod
-    def _save_rows(db, account, rows):
+    def _save_rows(db, account, rows, *, from_list=False):
         for row in rows:
             if row.get("id") is None or str(row["id"]) == "":
                 continue
@@ -197,7 +197,16 @@ class Store:
             previous = db.execute(
                 "SELECT payload FROM activities WHERE account=? AND id=?", (account, identity)
             ).fetchone()
-            merged = (json.loads(previous[0]) if previous else {}) | row
+            cached = json.loads(previous[0]) if previous else {}
+            merged = cached | row
+            if (
+                from_list
+                and cached.get("_detail_checked_at")
+                and cached.get("_term") == row.get("_term", cached.get("_term"))
+            ):
+                for key in ("startTime", "endTime", "address"):
+                    if row.get(key) in (None, "") and cached.get(key) not in (None, ""):
+                        merged[key] = cached[key]
             merged["_campuses"] = campuses_for_address(merged.get("address"))
             db.execute(
                 "INSERT INTO activities(account,id,payload) VALUES (?,?,?) ON CONFLICT(account,id) DO UPDATE SET payload=excluded.payload",
@@ -209,9 +218,9 @@ class Store:
         identities = list(dict.fromkeys(str(row["id"]) for row in rows if row.get("id") is not None and str(row["id"])))
         with self.connection() as db:
             db.execute("BEGIN IMMEDIATE")
-            self._save_rows(db, account, rows)
+            self._save_rows(db, account, rows, from_list=True)
             owner = db.execute(
-                "SELECT enabled,mode,baseline_ready,watch_generation FROM accounts WHERE id=?", (account,)
+                "SELECT enabled,mode,baseline_ready,watch_generation,campus FROM accounts WHERE id=?", (account,)
             ).fetchone()
             if (
                 not owner
@@ -219,18 +228,43 @@ class Store:
                 or (generation is not None and generation != owner["watch_generation"])
             ):
                 return []
+            locations = {
+                row["id"]: json.loads(row["campuses"] or "[]")
+                for row in db.execute(
+                    "SELECT id,json_extract(payload,'$._campuses') AS campuses FROM activities WHERE account=?",
+                    (account,),
+                )
+            }
+            scoped = [
+                identity
+                for identity in identities
+                if not owner["campus"] or owner["campus"] in locations.get(identity, [])
+            ]
             seen = {r[0] for r in db.execute("SELECT activity FROM seen_activities WHERE account=?", (account,))}
-            fresh = [identity for identity in identities if identity not in seen] if owner["baseline_ready"] else []
+            fresh = [identity for identity in scoped if identity not in seen] if owner["baseline_ready"] else []
+            # All initial rows form the baseline. Later unknown locations wait for
+            # detail enrichment before being considered for the selected campus.
+            seen_now = (
+                identities
+                if not owner["baseline_ready"] or not owner["campus"]
+                else [identity for identity in identities if locations.get(identity)]
+            )
             db.executemany(
                 "INSERT OR IGNORE INTO seen_activities VALUES (?,?,?)",
-                [(account, identity, stamp()) for identity in identities],
+                [(account, identity, stamp()) for identity in seen_now],
             )
             db.execute("UPDATE accounts SET baseline_ready=1 WHERE id=?", (account,))
             automatic = owner["mode"] == "auto"
             if automatic:
+                # Keep uncertain own requests for read-only reconciliation;
+                # ordinary booking targets belong only to the current scope.
+                db.execute(
+                    "UPDATE activities SET auto_target=CASE WHEN EXISTS (SELECT 1 FROM attempts t WHERE t.account=activities.account AND t.activity=activities.id AND t.status='uncertain') THEN 1 ELSE 0 END WHERE account=?",
+                    (account,),
+                )
                 db.executemany(
                     "UPDATE activities SET auto_target=1 WHERE account=? AND id=?",
-                    [(account, identity) for identity in identities],
+                    [(account, identity) for identity in scoped],
                 )
             for identity in fresh:
                 db.execute(

@@ -41,7 +41,9 @@ class Engine:
                 identity,
                 "success",
                 "学校网站确认当前账号已报名",
-                notification=success_message(activity.title) if existing else None,
+                notification=success_message((self.store.account(account) or owner)["name"], activity.title)
+                if existing
+                else None,
             )
             return
         if existing:  # Read-only reconciliation never causes a second send.
@@ -75,7 +77,7 @@ class Engine:
                 identity,
                 "success",
                 "学校接口确认报名成功，请按时参加",
-                notification=success_message(activity.title),
+                notification=success_message((self.store.account(account) or owner)["name"], activity.title),
             )
             self.store.log(account, "一项活动已收到学校报名成功回复。")
         else:
