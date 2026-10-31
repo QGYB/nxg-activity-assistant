@@ -189,7 +189,8 @@ def test_deadline_is_rechecked_after_slow_preflight(tmp_path):
     assert [c[0] for c in calls] == ["/c/credit/getHdBmDetails", "/s/credit/hdLose"]
 
 
-def test_web_login_is_captured_encrypted_and_restorable(tmp_path, monkeypatch):
+@pytest.mark.parametrize("profile_key", ["teaInfo", "stuInfo", "userInfo", "studentInfo"])
+def test_web_login_is_captured_encrypted_and_restorable(tmp_path, monkeypatch, profile_key):
     from playwright.sync_api import sync_playwright
     import activity_check.worker as worker_module
     from activity_check.models import ORIGIN
@@ -202,7 +203,7 @@ def test_web_login_is_captured_encrypted_and_restorable(tmp_path, monkeypatch):
     with fixture_site() as (site, calls):
         monkeypatch.setattr(worker_module, "SiteClient", lambda session: SiteClient(session, base_url=site.base_url))
         with sync_playwright() as p:
-            browser = p.chromium.launch(channel="msedge", headless=True)
+            browser = p.chromium.launch(channel="msedge", headless=True, args=["--disable-gpu"])
             context = browser.new_context()
             context.route(
                 ORIGIN + "/**",
@@ -213,7 +214,8 @@ def test_web_login_is_captured_encrypted_and_restorable(tmp_path, monkeypatch):
             page = context.new_page()
             page.goto(ORIGIN + "/zhxg/")
             page.evaluate(
-                "() => { localStorage.setItem('token','fixture-token'); localStorage.setItem('teaInfo',JSON.stringify({id:'A',status:'1'})); }"
+                "key => { localStorage.setItem('token','fixture-token'); localStorage.setItem(key,JSON.stringify({id:'A',status:'1'})); }",
+                profile_key,
             )
             worker.login_windows[account] = {
                 "context": context,
@@ -232,6 +234,7 @@ def test_web_login_is_captured_encrypted_and_restorable(tmp_path, monkeypatch):
             restored_page = restored.new_page()
             restored_page.goto(ORIGIN + "/zhxg/#/lifePractice/signup/list")
             assert restored_page.evaluate("() => JSON.parse(localStorage.getItem('teaInfo')).id") == "A"
+            assert restored_page.evaluate("key => JSON.parse(localStorage.getItem(key)).id", profile_key) == "A"
             browser.close()
     assert "/s/credit/hdBm" not in [c[0] for c in calls]
 

@@ -221,3 +221,32 @@ def test_background_event_burst_coalesces_renders_and_keeps_latest_data(desktop,
     assert app.table.exists("last")
     assert app.search_var.get() == "示例" and app.interval_var.get() == "尚未保存"
     assert not store.account(account)["enabled"] and not worker.commands
+
+
+def test_manual_import_explains_missing_profile_with_safe_key_names(desktop, monkeypatch):
+    from activity_check.ui import ImportDialog
+
+    app, store, account, worker = desktop
+    messages = []
+    monkeypatch.setattr("activity_check.ui.messagebox.showerror", lambda _title, text, **_kw: messages.append(text))
+    dialog = ImportDialog(app)
+    try:
+        dialog.raw.insert("1.0", '{"localStorage":{"Home_UseProxyAccount":"fixture-private-person"}}')
+        dialog.save()
+        assert "Home_UseProxyAccount" in messages[-1] and "fixture-private-person" not in messages[-1]
+        assert dialog.winfo_exists() and not worker.commands
+        assert len(store.accounts()) == 1 and not store.account(account)["enabled"]
+    finally:
+        dialog.destroy()
+
+
+def test_app_icon_belongs_to_the_window_passed_to_the_app(desktop):
+    app, store, _account, worker = desktop
+    other = tk.Tk()
+    other.withdraw()
+    try:
+        second = App(other, store, app.vault, worker)
+        assert second.brand_image.tk is other.tk
+        second.closing = True
+    finally:
+        other.destroy()

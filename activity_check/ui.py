@@ -127,9 +127,12 @@ class ImportDialog(tk.Toplevel):
             justify="left",
         ).pack(anchor="w")
         ttk.Button(login, text="打开网页登录", style="Primary.TButton", command=self.login).pack(anchor="w", pady=24)
-        ttk.Label(body, text="提示：个人标识是网站 teaInfo.id，通常不同于学号。", style="Muted.TLabel").pack(
-            anchor="w", pady=(14, 0)
-        )
+        ttk.Label(
+            body,
+            text="个人标识取自活动系统 stuInfo.id、teaInfo.id 等资料字段，通常不同于学号。",
+            style="Muted.TLabel",
+            wraplength=650,
+        ).pack(anchor="w", pady=(14, 0))
         self.protocol("WM_DELETE_WINDOW", self.destroy)
 
     def toggle_advanced(self):
@@ -156,10 +159,12 @@ class ImportDialog(tk.Toplevel):
         raw = self.raw.get("1.0", "end").strip()
         try:
             import_session(raw, self.token.get(), self.student.get())
-        except (SessionError, ValueError, TypeError):
+        except (SessionError, ValueError, TypeError) as error:
             messagebox.showerror(
                 "请检查登录数据",
-                "尚未读到完整的学生登录数据。请先进入智慧思政活动报名，看到活动列表后，在该页面运行“复制登录数据命令”。门户首页的数据不能用于报名。仅有 Cookie 时可补充 Token 和个人标识 ID。",
+                str(error)
+                if isinstance(error, SessionError)
+                else "尚未读到完整的学生登录数据。请进入活动列表后重新复制完整登录数据。",
                 parent=self,
             )
             return
@@ -294,7 +299,7 @@ class App:
         if self.icon_path.exists():
             root.iconbitmap(str(self.icon_path))
             install_window_icons(root, self.icon_path)
-        self.brand_image = tk.PhotoImage(file=str(self.icon_path.parent / "calendar-red-check-32.png"))
+        self.brand_image = tk.PhotoImage(master=root, file=str(self.icon_path.parent / "calendar-red-check-32.png"))
         header = ttk.Frame(root, padding=(self.px(24), self.px(10)), style="Inside.TFrame")
         header.pack(fill="x")
         ttk.Label(header, image=self.brand_image, style="Card.TLabel").pack(side="left", padx=(0, self.px(9)))
