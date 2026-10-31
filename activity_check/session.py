@@ -6,12 +6,68 @@ from http.cookies import SimpleCookie, CookieError
 import json
 import math
 import re
+from urllib.parse import unquote, urlsplit, urlunsplit
 
 from .models import ORIGIN
 
 
 class SessionError(ValueError):
     pass
+
+
+PROFILE_KEYS = ("teaInfo", "stuInfo", "userInfo", "studentInfo")
+
+
+def _private_storage_values(storage):
+    private = {value for value in storage.values() if isinstance(value, str) and value}
+    for key in PROFILE_KEYS:
+        info = storage.get(key)
+        if isinstance(info, str):
+            try:
+                info = json.loads(info)
+            except ValueError:
+                continue
+        if isinstance(info, dict):
+            private.update(str(value) for value in info.values() if isinstance(value, (str, int)) and value)
+    return private
+
+
+def storage_key_names(storage):
+    """Bound diagnostics to short key identifiers, excluding values used as keys."""
+    private = _private_storage_values(storage)
+    keys = sorted(
+        key
+        for key in storage
+        if isinstance(key, str)
+        and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.:-]{0,47}", key)
+        and not any(key == value or (len(value) >= 8 and value in key) for value in private)
+    )[:12]
+    omitted = len(storage) - len(keys)
+    return (", ".join(keys) or "无可显示键名") + (f"（另有 {omitted} 项名称已省略）" if omitted else "")
+
+
+def login_page_location(url, storage):
+    """Never put URL credentials, OAuth queries/fragments or known secrets in logs."""
+    try:
+        parts = urlsplit(url)
+        if parts.scheme not in {"http", "https"} or not parts.hostname:
+            return "尚未打开学校页面"
+        host = parts.hostname + (":" + str(parts.port) if parts.port else "")
+    except ValueError:
+        return "页面地址暂不可读"
+    private = _private_storage_values(storage)
+    segments = []
+    for segment in (parts.path or "/").split("/"):
+        if unquote(segment) in private:
+            segment = "[已隐藏]"
+        else:
+            for value in private:
+                if len(value) >= 8:
+                    segment = segment.replace(value, "[已隐藏]")
+            segment = re.sub(r"[A-Za-z0-9_-]{24,}", "[已隐藏]", segment)
+        segments.append(segment)
+    location = urlunsplit((parts.scheme, host, "/".join(segments), "", ""))
+    return re.sub(r"[\x00-\x1f\x7f]", "", location)[:180]
 
 
 @dataclass(repr=False)
@@ -69,27 +125,44 @@ def import_session(raw, token="", student_id=""):
             storage.update(_storage(origin.get("localStorage", [])))
     token = str(token or data.get("token") or storage.get("token") or "").strip()
     token = token.removeprefix("Bearer ").strip()
-    info = data.get("teaInfo", storage.get("teaInfo", {}))
-    if isinstance(info, str):
-        try:
-            info = json.loads(info)
-        except ValueError:
-            raise SessionError("登录数据中的个人信息格式不正确。") from None
-    if not isinstance(info, dict):
-        raise SessionError("登录数据缺少学校账号信息。")
-    if str(info.get("status", "1")) != "1":
-        raise SessionError("请选择学生账号的登录数据。")
+    info, profile_key, profile_error = {}, None, None
+    for key in PROFILE_KEYS:
+        candidate = data.get(key) or storage.get(key)
+        if candidate is None or candidate == "":
+            continue
+        if isinstance(candidate, str):
+            try:
+                candidate = json.loads(candidate)
+            except ValueError:
+                profile_error = profile_error or "登录数据中的个人信息格式不正确。"
+                continue
+        if candidate is None:
+            continue
+        if not isinstance(candidate, dict):
+            profile_error = profile_error or "登录数据中的个人信息格式不正确。"
+            continue
+        if str(candidate.get("status", "1")) != "1":
+            profile_error = profile_error or "请选择学生账号的登录数据。"
+            continue
+        if candidate.get("id"):
+            info, profile_key = candidate, key
+            break
+    if not profile_key and profile_error:
+        raise SessionError(profile_error + "；当前存储键：" + storage_key_names(storage))
     identity = str(info.get("id") or student_id or "").strip()
     if not token or not identity or any(c in token + identity for c in "\r\n"):
         raise SessionError(
             "还需要完整登录数据（Token 和个人标识）。请先从学校门户进入智慧思政活动报名，"
-            "看到活动列表后，再在该页面运行“复制登录数据命令”；门户首页的数据不能用于报名。"
+            "看到活动列表后，再在该页面运行“复制登录数据命令”；门户首页的数据不能用于报名"
+            "；当前存储键：" + storage_key_names(storage)
         )
     if student_id and str(student_id).strip() != identity:
         raise SessionError("填写的个人标识与登录数据不一致。")
     info = info | {"id": identity, "status": "1"}
     storage["token"] = token
     storage["teaInfo"] = json.dumps(info, ensure_ascii=False)
+    if profile_key and profile_key != "teaInfo":
+        storage[profile_key] = json.dumps(info, ensure_ascii=False)
     cookies = []
     cookie_items = data.get("cookies", [])
     if not isinstance(cookie_items, list):

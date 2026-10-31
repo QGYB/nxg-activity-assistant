@@ -9,11 +9,11 @@ import queue
 import threading
 import time
 import traceback
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from .engine import Engine
 from .models import LIST_URL, LOGIN_URL, ORIGIN, Activity, parse_time
-from .session import SessionError, import_session, school_domain
+from .session import SessionError, import_session, login_page_location, school_domain, storage_key_names
 from .site import SiteClient, SiteError, LoginExpired
 from .store import IdentityMismatch
 from .vault import Vault
@@ -304,7 +304,7 @@ class Worker(threading.Thread):
 
             self.playwright = sync_playwright().start()
         if not self.browser or not self.browser.is_connected():
-            self.browser = self.playwright.chromium.launch(channel="msedge", headless=False)
+            self.browser = self.playwright.chromium.launch(channel="msedge", headless=False, args=["--disable-gpu"])
 
     def _open_browser(self, account, activity=None, save=True):
         self._ensure_browser()
@@ -345,15 +345,25 @@ class Worker(threading.Thread):
             if not data["save"]:
                 continue
             for page in pages:
-                if not page.url.startswith(ORIGIN + "/"):
-                    continue
+                values = {}
                 try:
-                    values = page.evaluate(
-                        "() => ({token:localStorage.getItem('token'),info:localStorage.getItem('teaInfo')})"
-                    )
-                    if not values.get("token") or not values.get("info"):
+                    parts = urlsplit(page.url)
+                    origin = f"{parts.scheme}://{parts.netloc}".lower()
+                    if origin not in {ORIGIN, LOGIN_URL.rstrip("/")}:
+                        self._login_wait(account, data, page.url, values, "请从学校门户进入智慧思政活动报名。")
                         continue
-                    signature = hashlib.sha256((values["token"] + values["info"]).encode()).hexdigest()
+                    values = page.evaluate("() => Object.fromEntries(Object.entries(localStorage))")
+                    if not isinstance(values, dict):
+                        values = {}
+                    if origin != ORIGIN:
+                        self._login_wait(account, data, page.url, values, "当前仍在学校门户，请进入活动列表。")
+                        continue
+                    try:
+                        preview = import_session(json.dumps({"localStorage": values}))
+                    except SessionError as error:
+                        self._login_wait(account, data, page.url, values, str(error).split("；当前存储键", 1)[0])
+                        continue
+                    signature = hashlib.sha256(json.dumps([preview.token, preview.student_id]).encode()).hexdigest()
                     if signature == data["signature"] and time.monotonic() < data.get("retry_at", 0):
                         continue
                     data["signature"] = signature
@@ -370,4 +380,16 @@ class Worker(threading.Thread):
                     self._error(account, error)
                 except Exception:
                     # Navigation during OAuth is normal; poll the owned page again.
+                    self._login_wait(account, data, page.url, values, "页面正在跳转或存储暂不可读，稍后继续检查。")
                     continue
+
+    def _login_wait(self, account, data, url, storage, reason):
+        now = time.monotonic()
+        if now < data.get("notice_at", float("-inf")):
+            return
+        data["notice_at"] = now + 30
+        self.store.log(
+            account,
+            f"网页登录等待：{login_page_location(url, storage)}；存储键：{storage_key_names(storage)}。{reason}",
+        )
+        self.emit("changed", account)

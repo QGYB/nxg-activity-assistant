@@ -36,7 +36,7 @@ class WechatLoginDialog(tk.Toplevel):
         ).pack(anchor="w", pady=(12, 18))
         self.qr_label = ttk.Label(body, anchor="center")
         self.qr_label.pack(expand=True, fill="both")
-        self.status = tk.StringVar(value="正在向微信官方服务器获取二维码…")
+        self.status = tk.StringVar(master=self, value="正在向微信官方服务器获取二维码…")
         ttk.Label(body, textvariable=self.status, wraplength=round(400 * app.scale)).pack(pady=14)
         ttk.Button(body, text="关闭", command=self.close).pack()
         self.updates = queue.Queue()

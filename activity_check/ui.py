@@ -72,7 +72,7 @@ class ImportDialog(tk.Toplevel):
             anchor="w", pady=(8, 18)
         )
         ttk.Label(body, text="账号备注").pack(anchor="w")
-        self.name = tk.StringVar(value=app.store.account(account)["name"] if account else "我的账号")
+        self.name = tk.StringVar(master=self, value=app.store.account(account)["name"] if account else "我的账号")
         ttk.Entry(body, textvariable=self.name, state="readonly" if account else "normal").pack(fill="x", pady=(5, 16))
         tabs = ttk.Notebook(body)
         tabs.pack(fill="both", expand=True)
@@ -104,7 +104,7 @@ class ImportDialog(tk.Toplevel):
             style="Muted.TLabel",
         ).pack(anchor="w")
         ttk.Button(manual, text="复制登录数据命令 / 查看步骤", command=self.copy_help).pack(anchor="w", pady=(10, 8))
-        self.advanced_var = tk.BooleanVar(value=False)
+        self.advanced_var = tk.BooleanVar(master=self, value=False)
         advanced = self.advanced = ttk.Frame(manual)
         ttk.Checkbutton(
             manual, text="仅有 Cookie：补充 Token 和个人标识", variable=self.advanced_var, command=self.toggle_advanced
@@ -113,10 +113,10 @@ class ImportDialog(tk.Toplevel):
             row=0, column=0, columnspan=2, sticky="w", pady=(0, 8)
         )
         ttk.Label(advanced, text="Token").grid(row=1, column=0, sticky="w", padx=(0, 12))
-        self.token = tk.StringVar()
+        self.token = tk.StringVar(master=self)
         ttk.Entry(advanced, textvariable=self.token, show="●").grid(row=1, column=1, sticky="ew")
         ttk.Label(advanced, text="个人标识 ID").grid(row=2, column=0, sticky="w", padx=(0, 12), pady=8)
-        self.student = tk.StringVar()
+        self.student = tk.StringVar(master=self)
         ttk.Entry(advanced, textvariable=self.student).grid(row=2, column=1, sticky="ew")
         advanced.columnconfigure(1, weight=1)
         ttk.Label(login, text="在学校官方页面完成登录", style="Section.TLabel").pack(anchor="w", pady=(12, 18))
@@ -127,9 +127,12 @@ class ImportDialog(tk.Toplevel):
             justify="left",
         ).pack(anchor="w")
         ttk.Button(login, text="打开网页登录", style="Primary.TButton", command=self.login).pack(anchor="w", pady=24)
-        ttk.Label(body, text="提示：个人标识是网站 teaInfo.id，通常不同于学号。", style="Muted.TLabel").pack(
-            anchor="w", pady=(14, 0)
-        )
+        ttk.Label(
+            body,
+            text="个人标识取自活动系统 stuInfo.id、teaInfo.id 等资料字段，通常不同于学号。",
+            style="Muted.TLabel",
+            wraplength=650,
+        ).pack(anchor="w", pady=(14, 0))
         self.protocol("WM_DELETE_WINDOW", self.destroy)
 
     def toggle_advanced(self):
@@ -156,10 +159,12 @@ class ImportDialog(tk.Toplevel):
         raw = self.raw.get("1.0", "end").strip()
         try:
             import_session(raw, self.token.get(), self.student.get())
-        except (SessionError, ValueError, TypeError):
+        except (SessionError, ValueError, TypeError) as error:
             messagebox.showerror(
                 "请检查登录数据",
-                "尚未读到完整的学生登录数据。请先进入智慧思政活动报名，看到活动列表后，在该页面运行“复制登录数据命令”。门户首页的数据不能用于报名。仅有 Cookie 时可补充 Token 和个人标识 ID。",
+                str(error)
+                if isinstance(error, SessionError)
+                else "尚未读到完整的学生登录数据。请进入活动列表后重新复制完整登录数据。",
                 parent=self,
             )
             return
@@ -191,7 +196,7 @@ class AccountSettingsDialog(tk.Toplevel):
         body = ttk.Frame(self, padding=app.px(24))
         body.pack(fill="both", expand=True)
         ttk.Label(body, text=owner["name"], style="Section.TLabel", wraplength=app.px(390)).pack(anchor="w")
-        self.state = tk.StringVar(value="学校登录状态：" + owner["status"])
+        self.state = tk.StringVar(master=self, value="学校登录状态：" + owner["status"])
         ttk.Label(body, textvariable=self.state, style="Muted.TLabel").pack(anchor="w", pady=(app.px(6), app.px(20)))
         ttk.Button(body, text="更新登录态 / 网页登录", command=self.login).pack(anchor="w")
         ttk.Separator(body).pack(fill="x", pady=app.px(20))
@@ -199,7 +204,7 @@ class AccountSettingsDialog(tk.Toplevel):
         line.pack(fill="x")
         ttk.Label(line, text="检查间隔").pack(side="left")
         value = app.interval_var.get() if app.account_id == account else str(owner["interval"])
-        self.interval = tk.StringVar(value=value)
+        self.interval = tk.StringVar(master=self, value=value)
         ttk.Spinbox(line, from_=5, to=3600, increment=5, textvariable=self.interval, width=7).pack(
             side="left", padx=app.px(10)
         )
@@ -294,7 +299,9 @@ class App:
         if self.icon_path.exists():
             root.iconbitmap(str(self.icon_path))
             install_window_icons(root, self.icon_path)
-        self.brand_image = tk.PhotoImage(file=str(self.icon_path.parent / "calendar-red-check-32.png"))
+        self.brand_image = tk.PhotoImage(
+            master=root, data=(self.icon_path.parent / "calendar-red-check-32.png").read_bytes(), format="png"
+        )
         header = ttk.Frame(root, padding=(self.px(24), self.px(10)), style="Inside.TFrame")
         header.pack(fill="x")
         ttk.Label(header, image=self.brand_image, style="Card.TLabel").pack(side="left", padx=(0, self.px(9)))
@@ -308,14 +315,16 @@ class App:
             header, text="通知设置", style="Inline.TButton", command=self.notification_settings
         )
         self.wechat_button.pack(side="right", padx=(self.px(8), self.px(12)))
-        self.wechat_status = tk.StringVar(value="微信：未连接")
+        self.wechat_status = tk.StringVar(master=root, value="微信：未连接")
         self.wechat_label = ttk.Label(header, textvariable=self.wechat_status, style="CardMuted.TLabel")
         self.wechat_label.pack(side="right", padx=self.px(8))
-        self.school_status = tk.StringVar(value="学校账号")
+        self.school_status = tk.StringVar(master=root, value="学校账号")
         self.school_label = ttk.Label(header, textvariable=self.school_status, style="CardMuted.TLabel")
         self.school_label.pack(side="right", padx=self.px(8))
         ttk.Separator(root).pack(fill="x")
-        self.footer = tk.StringVar(value="最小化后继续运行；关闭软件或电脑休眠后停止。所有时间均为北京时间。")
+        self.footer = tk.StringVar(
+            master=root, value="最小化后继续运行；关闭软件或电脑休眠后停止。所有时间均为北京时间。"
+        )
         ttk.Label(
             root,
             textvariable=self.footer,
@@ -506,7 +515,7 @@ class App:
             side="left", padx=self.px(5)
         )
         ttk.Button(top, text="账号设置", style="Quiet.TButton", command=self.account_settings).pack(side="right")
-        self.term_var = tk.StringVar(value=owner["term"] or "当前学期")
+        self.term_var = tk.StringVar(master=self.root, value=owner["term"] or "当前学期")
         self.term_combo = ttk.Combobox(
             top, textvariable=self.term_var, values=self.terms.get(account, []), state="readonly", width=20
         )
@@ -518,9 +527,9 @@ class App:
         monitor.columnconfigure(0, weight=1)
         left = ttk.Frame(monitor, style="Inside.TFrame")
         left.grid(row=0, column=0, sticky="w")
-        self.run_title = tk.StringVar()
-        self.status_var = tk.StringVar()
-        self.monitor_info = tk.StringVar()
+        self.run_title = tk.StringVar(master=self.root)
+        self.status_var = tk.StringVar(master=self.root)
+        self.monitor_info = tk.StringVar(master=self.root)
         self.run_label = ttk.Label(left, textvariable=self.run_title, style="Status.TLabel")
         self.run_label.pack(anchor="w")
         ttk.Label(left, textvariable=self.monitor_info, style="CardMuted.TLabel").pack(anchor="w", pady=(self.px(4), 0))
@@ -541,15 +550,15 @@ class App:
         self.auto_button.grid(row=0, column=0)
         self.refresh_button = ttk.Button(controls, text="刷新 F5", command=self.refresh)
         self.refresh_button.pack(side="left", padx=(self.px(8), 0))
-        self.interval_var = tk.StringVar(value=state.get("interval", str(owner["interval"])))
-        self.mode_hint = tk.StringVar()
+        self.interval_var = tk.StringVar(master=self.root, value=state.get("interval", str(owner["interval"])))
+        self.mode_hint = tk.StringVar(master=self.root)
 
         filters = ttk.Frame(self.body)
         filters.pack(fill="x", pady=(0, self.px(9)))
         scope = ttk.Frame(filters)
         scope.pack(side="left")
         ttk.Label(scope, text="校区 / 报名范围", style="Muted.TLabel").pack(side="left", padx=(0, self.px(8)))
-        self.campus_var = tk.StringVar(value=owner["campus"] or "全部校区")
+        self.campus_var = tk.StringVar(master=self.root, value=owner["campus"] or "全部校区")
         self.campus_buttons = {}
         for key, text in (("", "全部"), *((name, name) for name in CAMPUSES)):
             button = ttk.Button(scope, text=text, command=lambda value=key: self.select_campus(value))
@@ -557,10 +566,10 @@ class App:
             self.campus_buttons[key] = button
         right = ttk.Frame(filters)
         right.pack(side="right")
-        self.search_var = tk.StringVar(value=state.get("search", ""))
+        self.search_var = tk.StringVar(master=self.root, value=state.get("search", ""))
         ttk.Label(right, text="搜索", style="Muted.TLabel").pack(side="left", padx=(0, self.px(7)))
         ttk.Entry(right, textvariable=self.search_var, width=25).pack(side="left")
-        self.filter_var = tk.StringVar(value=state.get("filter", "全部活动"))
+        self.filter_var = tk.StringVar(master=self.root, value=state.get("filter", "全部活动"))
         combo = ttk.Combobox(
             right,
             textvariable=self.filter_var,
@@ -591,7 +600,7 @@ class App:
             button = ttk.Button(sorting, text=text, command=lambda mode=key: self.toggle_sort(mode))
             button.pack(side="left", padx=(0, self.px(5)))
             self.sort_buttons[key] = button
-        self.sort_hint = tk.StringVar()
+        self.sort_hint = tk.StringVar(master=self.root)
         ttk.Label(sorting, textvariable=self.sort_hint, style="Muted.TLabel").pack(side="left", padx=self.px(5))
         ttk.Label(sorting, text="按地点筛选，同时限制报名 · 勾选表示“不报名”", style="Muted.TLabel").pack(side="right")
 
@@ -602,7 +611,7 @@ class App:
         log_header.pack(fill="x")
         self.log_button = ttk.Button(log_header, text="运行记录 ▸", style="Inline.TButton", command=self.toggle_logs)
         self.log_button.pack(side="left")
-        self.log_summary = tk.StringVar()
+        self.log_summary = tk.StringVar(master=self.root)
         ttk.Label(log_header, textvariable=self.log_summary, style="CardMuted.TLabel", anchor="e").pack(
             side="right", fill="x", expand=True, padx=self.px(8)
         )
@@ -634,7 +643,7 @@ class App:
         bottom = ttk.Frame(table_frame, style="Inside.TFrame", padding=(self.px(10), self.px(5)))
         bottom.pack(side="bottom", fill="x", padx=self.px(5), pady=(0, self.px(3)))
         self.table.pack(fill="both", expand=True, padx=self.px(2), pady=(self.px(3), 0))
-        self.count_var = tk.StringVar()
+        self.count_var = tk.StringVar(master=self.root)
         ttk.Label(bottom, textvariable=self.count_var, style="CardMuted.TLabel").pack(side="left")
         self.cancel_button = ttk.Button(
             bottom, text="取消所选报名", style="Inline.TButton", command=self.cancel_registration
