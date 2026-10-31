@@ -34,8 +34,8 @@ def setup_style(root):
 
     style = ttk.Style(root)
     style.theme_use("clam")
-    tkfont.nametofont("TkDefaultFont").configure(family=FONT, size=10)
-    tkfont.nametofont("TkTextFont").configure(family=FONT, size=10)
+    tkfont.nametofont("TkDefaultFont", root=root).configure(family=FONT, size=10)
+    tkfont.nametofont("TkTextFont", root=root).configure(family=FONT, size=10)
     style.configure(".", font=(FONT, 10), foreground=INK, background=BG)
     style.configure("TFrame", background=BG)
     style.configure("Inside.TFrame", background=SURFACE)

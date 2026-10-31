@@ -240,13 +240,20 @@ def test_manual_import_explains_missing_profile_with_safe_key_names(desktop, mon
         dialog.destroy()
 
 
-def test_app_icon_belongs_to_the_window_passed_to_the_app(desktop):
-    app, store, _account, worker = desktop
-    other = tk.Tk()
-    other.withdraw()
+def test_widgets_use_the_supplied_window_with_implicit_roots_disabled(desktop, monkeypatch):
+    from activity_check.ui import ImportDialog
+
+    app, store, account, worker = desktop
+    monkeypatch.setattr(tk, "_support_default_root", False)
+    monkeypatch.delattr(tk, "_default_root")
+    second = App(app.root, store, app.vault, worker)
+    second.show_account(account)
+    assert second.brand_image.tk is app.root.tk
+    assert (second.brand_image.width(), second.brand_image.height()) == (32, 32)
+    assert second.search_var._tk is app.root.tk
+    dialog = ImportDialog(second)
     try:
-        second = App(other, store, app.vault, worker)
-        assert second.brand_image.tk is other.tk
+        assert dialog.student._tk is app.root.tk and dialog.token._tk is app.root.tk
         second.closing = True
     finally:
-        other.destroy()
+        dialog.destroy()
